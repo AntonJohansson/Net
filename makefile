@@ -4,7 +4,8 @@ BUILDDIR = build
 OUTLIB = $(BUILDDIR)/$(PROJECT).a
 
 SRCS = src/socket.c \
-	   src/poll_set.c
+	   src/poll_set.c \
+	   src/binary_encoding.c
 TEST_SERVER_SRCS = tests/server/main.c
 TEST_CLIENT_SRCS = tests/client/main.c
 HDRS = include/net.h

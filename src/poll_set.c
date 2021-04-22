@@ -8,14 +8,14 @@
 
 #include <sys/epoll.h>
 
-Poll_Set* poll_set_new(int max_events, Poll_Set_Callback_Func* data_callback, Poll_Set_Callback_Func* close_callback) {
-	void* p = malloc(sizeof(Poll_Set) + sizeof(struct epoll_event)*max_events);
+struct poll_set* poll_set_new(int max_events, poll_set_callback_func* data_callback, poll_set_callback_func* close_callback) {
+	void* p = malloc(sizeof(struct poll_set) + sizeof(struct epoll_event)*max_events);
 	if (p == NULL) {
 		printf("[error] malloc(...): failed\n");
 		return NULL;
 	}
 
-	Poll_Set* poll_set = p;
+	struct poll_set* poll_set = p;
 	poll_set->fd = epoll_create1(0);
 	if (poll_set->fd == -1) {
 		printf("[error] epoll_create1(...): failed with error %s\n", strerror(errno));
@@ -28,13 +28,13 @@ Poll_Set* poll_set_new(int max_events, Poll_Set_Callback_Func* data_callback, Po
 	return poll_set;
 }
 
-void poll_set_free(Poll_Set* poll_set) {
+void poll_set_free(struct poll_set* poll_set) {
 	// Is there no way to close a poll set? Is it not necessary?
 	//close(poll_set->fd); // Is this necessary?
 	free(poll_set);
 }
 
-void poll_set_add(Poll_Set* poll_set, int fd) {
+void poll_set_add(struct poll_set* poll_set, int fd) {
 	struct epoll_event ev = {
 		.data.fd = fd,
 		.events = EPOLLIN | EPOLLRDHUP,
@@ -47,7 +47,7 @@ void poll_set_add(Poll_Set* poll_set, int fd) {
 	poll_set->size++;
 }
 
-void poll_set_remove(Poll_Set* poll_set, int fd) {
+void poll_set_remove(struct poll_set* poll_set, int fd) {
 	struct epoll_event ev = {.data.fd = fd};
 	if (epoll_ctl(poll_set->fd, EPOLL_CTL_DEL, fd, &ev)) {
 		printf("[error] poll_set_remove(...): epoll_ctl(...) failed with error %s\n", strerror(errno));
@@ -56,7 +56,7 @@ void poll_set_remove(Poll_Set* poll_set, int fd) {
 	poll_set->size--;
 }
 
-void poll_set_poll(Poll_Set* poll_set) {
+void poll_set_wait_for_events(struct poll_set* poll_set) {
 	int num_events = epoll_wait(poll_set->fd, poll_set->events, poll_set->max_events, -1);
 	if (num_events > 0) {
 		for (int i = 0; i < num_events; i++) {

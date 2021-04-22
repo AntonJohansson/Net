@@ -10,63 +10,59 @@
 #include <sys/socket.h>
 #include <fcntl.h>
 
-Socket socket_open(Socket_Mode mode) {
-	return (Socket){};
+void socket_close(int socket) {
+	close(socket);
 }
 
-void socket_close(Socket* socket) {
-	close(socket->fd);
+void socket_shutdown(int socket) {
+	shutdown(socket, SHUT_RDWR);
 }
 
-void socket_shutdown(Socket* socket) {
-	shutdown(socket->fd, SHUT_RDWR);
-}
-
-void socket_set_blocking(Socket* socket, const bool state) {
+void socket_set_blocking(int socket, const bool state) {
 	if (state) {
 		// Unset O_NONBLOCK flag
-		int opts = fcntl(socket->fd, F_GETFL);
+		int opts = fcntl(socket, F_GETFL);
 		opts = opts & (~O_NONBLOCK);
-		fcntl(socket->fd, F_SETFL, opts);
+		fcntl(socket, F_SETFL, opts);
 	} else {
 		// Set O_NONBLOCK flag
-		fcntl(socket->fd, F_SETFL, O_NONBLOCK);
+		fcntl(socket, F_SETFL, O_NONBLOCK);
 	}
 }
 
-size_t socket_send(Socket* socket, const uint8_t* data, const size_t size) {
-	ssize_t bytes_sent = send(socket->fd, data, size, 0);
-	if (send(socket->fd, data, size, 0) == -1) {
+size_t socket_send(int socket, const uint8_t* data, const size_t size) {
+	ssize_t bytes_sent = send(socket, data, size, 0);
+	if (send(socket, data, size, 0) == -1) {
 		if (errno = EAGAIN || errno == EWOULDBLOCK) {
 			// ?
 		} else if (errno == ECONNRESET) {
 			// Connection closed by client
 		} else {
 			// Send failed
-			printf("[error] Socket %d -- send(...) failed with error: %s\n", socket->fd, strerror(errno));
+			printf("[error] Socket %d -- send(...) failed with error: %s\n", socket, strerror(errno));
 		}
 	}
 
 	return (size_t)bytes_sent;
 }
 
-void socket_send_all(Socket* socket, const uint8_t* data, const size_t size) {
+void socket_send_all(int socket, const uint8_t* data, const size_t size) {
 	size_t total_bytes_sent = 0;
 	while (total_bytes_sent < size) {
-		size_t num_bytes_sent = send(socket->fd, data + total_bytes_sent, size - total_bytes_sent, 0);
+		size_t num_bytes_sent = send(socket, data + total_bytes_sent, size - total_bytes_sent, 0);
 		total_bytes_sent += num_bytes_sent;
 	}
 }
 
-size_t socket_recv(Socket* socket, uint8_t* buf, const size_t buf_size) {
-	ssize_t bytes_received = recv(socket->fd, buf, buf_size-1, 0);
+size_t socket_recv(int socket, uint8_t* buf, const size_t buf_size) {
+	ssize_t bytes_received = recv(socket, buf, buf_size-1, 0);
 	if (bytes_received <= 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			// No data to be received
 		} else if (errno == ECONNRESET || bytes_received == 0) {
 			// Connection closed by client
 		} else {
-			printf("[error] Socket %d -- recv(...) failed with error %s\n", socket->fd, strerror(errno));
+			printf("[error] Socket %d -- recv(...) failed with error %s\n", socket, strerror(errno));
 		}
 
 		bytes_received = 0;
@@ -104,7 +100,7 @@ size_t socket_recv(Socket* socket, uint8_t* buf, const size_t buf_size) {
 #include <netdb.h>
 #include <arpa/inet.h>
 
-Socket server_bind_tcp(const char* port) {
+int server_bind_tcp(const char* port) {
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family   = AF_UNSPEC;
@@ -115,7 +111,7 @@ Socket server_bind_tcp(const char* port) {
 	int err = getaddrinfo(NULL, port, &hints, &info);
 	if (err != 0) {
 		printf("[error] server_bind_tcp(...): getaddrinfo(...) failed with error %s\n", gai_strerror(err));
-		return (Socket){};
+		return SOCKET_INVALID;
 	}
 
 	int sock = -1;
@@ -129,7 +125,7 @@ Socket server_bind_tcp(const char* port) {
 
 		if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
 			printf("[error] server_bind_tcp(...): setsockopt(...) failed with error %s\n", strerror(errno));
-			return (Socket){};
+			return SOCKET_INVALID;
 		}
 
 		if (bind(sock, p->ai_addr, p->ai_addrlen) == -1) {
@@ -146,32 +142,32 @@ Socket server_bind_tcp(const char* port) {
 
 	if (sock == -1) {
 		printf("[error] server_bind_tcp(...): Failed to bind socket\n");
-		return (Socket){};
+		return SOCKET_INVALID;
 	}
 
-	return (Socket){.fd = sock};
+	return sock;
 }
 
-void server_listen(Socket* socket, uint32_t backlog) {
-	if (listen(socket->fd, backlog) == -1) {
+void server_listen(int socket, uint32_t backlog) {
+	if (listen(socket, backlog) == -1) {
 		printf("[error] server_listen(...): listen(...) failed with error %s\n",  strerror(errno));
 	}
 }
 
-Socket server_accept(Socket* socket) {
+int server_accept(int socket) {
 	struct sockaddr_storage their_addr;
 	socklen_t sin_size = sizeof(their_addr);
 
-	int sock = accept(socket->fd, (struct sockaddr*)&their_addr, &sin_size);
+	int sock = accept(socket, (struct sockaddr*)&their_addr, &sin_size);
 	if (sock == -1) {
 		printf("[error] server_accept(...): accept(...) failed with error %s\n",  strerror(errno));
-		return (Socket){};
+		return SOCKET_INVALID;
 	}
 
-	return (Socket){.fd = sock};
+	return sock;
 }
 
-Socket client_bind_tcp(const char* ip, const char* port) {
+int client_bind_tcp(const char* ip, const char* port) {
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family   = AF_UNSPEC;
@@ -181,7 +177,7 @@ Socket client_bind_tcp(const char* ip, const char* port) {
 	int err = getaddrinfo(ip, port, &hints, &info);
 	if (err != 0) {
 		printf("[error] client_bind_tcp(...): getaddrinfo(...) failed with error %s\n", gai_strerror(err));
-		return (Socket){};
+		return SOCKET_INVALID;
 	}
 
 	int sock = -1;
@@ -207,11 +203,11 @@ Socket client_bind_tcp(const char* ip, const char* port) {
 
 	if (sock == -1) {
 		printf("[error] server_bind_tcp(...): Failed to bind socket\n");
-		return (Socket){};
+		return SOCKET_INVALID;
 	} else if (p == NULL) {
 		printf("[error] server_bind_tcp(...): Failed to connect to server\n");
-		return (Socket){};
+		return SOCKET_INVALID;
 	}
 
-	return (Socket){.fd = sock};
+	return sock;
 }
